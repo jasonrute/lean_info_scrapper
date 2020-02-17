@@ -331,7 +331,7 @@ if __name__ == "__main__":
 
     lean_paths = lean_paths()
 
-    if path is 'ALL':
+    if path == 'ALL':
         for lean_path in lean_paths:
             scrap_and_save_directory(lean_path, lean_paths)
 
