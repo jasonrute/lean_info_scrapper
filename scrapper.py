@@ -6,6 +6,7 @@ import collections
 import os
 import sys
 import gzip
+from pprint import pprint
 
 
 class LeanServer:
@@ -266,7 +267,7 @@ class LeanInfoScrapper:
 
     def process_directory_from_path(self, path):
         all_msgs = []
-        for (root,dirs,files) in os.walk(path):
+        for (root,_,files) in os.walk(path):
             for name in files:
                 if name.endswith(".lean"):
                     file_path = os.path.join(root, name)
@@ -306,25 +307,35 @@ def output_file_name(path, lean_paths):
     
     return None
 
-def scrap_and_save_file(file_path, lean_paths):
+def scrap_and_save_file(file_path, lean_paths, force_reload):
     file_name_end = output_file_name(file_path, lean_paths)
     if file_name_end is None:
         raise Exception("File " + file_path + " must be an expension of one of these paths:\n", lean_paths)
-            
-    with LeanInfoScrapper({'pp.all':'true'}) as scrapper:
-        msgs = scrapper.process_file_from_path(file_path)
-        j = scrapper.msgs_to_json(msgs)
-        output_file = output_directory + '/' + file_name_end
 
-        print("Saving results to:", output_file)
-        json.dump(msgs, gzip.open(output_file, 'wt'))
+    output_file = output_directory + '/' + file_name_end
+    if (not force_reload) and os.path.isfile(output_file):
+        print('Skipping', file_path)
+        return
+
+    with LeanInfoScrapper({'pp.all':'true'}) as scrapper:
+        try:
+            msgs = scrapper.process_file_from_path(file_path)
+
+            print("Saving results to:", output_file)
+            json.dump(msgs, gzip.open(output_file, 'wt'))
+        except ValueError as err:
+            print()
+            print('ValueError when processing', file_path)
+            print()
+            print(err)
+            print()
 
 def scrap_and_save_directory(path, lean_paths):
     for (root, _, files) in os.walk(path):
         for name in files:
             if name.endswith(".lean"):
                 file_path = os.path.join(root, name)
-                scrap_and_save_file(file_path, lean_paths)
+                scrap_and_save_file(file_path, lean_paths, force_reload=False)
 
 if __name__ == "__main__":
     _, path, output_directory = sys.argv
@@ -336,7 +347,7 @@ if __name__ == "__main__":
             scrap_and_save_directory(lean_path, lean_paths)
 
     elif path.endswith('.lean'):
-        scrap_and_save_file(path, lean_paths)
+        scrap_and_save_file(path, lean_paths, force_reload=True)
 
     elif os.path.isdir(path):
         scrap_and_save_directory(path, lean_paths)
