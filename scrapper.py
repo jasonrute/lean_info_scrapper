@@ -8,6 +8,12 @@ import sys
 import gzip
 from pprint import pprint
 import re
+import logging
+
+logging.basicConfig(
+    format='%(asctime)s - %(levelname)s - %(message)s', 
+    level=logging.INFO
+)
 
 
 class LeanServer:
@@ -266,7 +272,7 @@ class LeanInfoScrapper:
     def process_file_from_path(self, path):
         assert path.endswith(".lean")
         
-        print('Processing', path, '...')
+        logging.info('Processing {} ...'.format(path))
         
         with open(path, 'r') as f:
             return self.process_file(path, f.read())
@@ -339,7 +345,7 @@ def scrap_and_save_file(file_path, lean_paths, lean_versions, force_reload):
 
     output_file = output_directory + '/' + file_name_end
     if (not force_reload) and os.path.isfile(output_file):
-        print('Skipping', file_path)
+        logging.info('Skipping {}'.format(file_path))
         return
 
     with LeanInfoScrapper({'pp.all':'true'}) as scrapper:
@@ -352,21 +358,17 @@ def scrap_and_save_file(file_path, lean_paths, lean_versions, force_reload):
                 m['_mathlib_git'] = lean_versions[1]
                 m['_mathlib_rev'] = lean_versions[2]
 
-            print("Saving results to:", output_file)
+            logging.info("Saving results to: {}".format(output_file))
             json.dump(msgs, gzip.open(output_file, 'wt'))
         except ValueError as err:
-            print()
-            print('ValueError when processing', file_path)
-            print()
-            print(err)
-            print()
+            logging.exception('JSON parsing issue when processing {}'.format(file_path))
 
 def scrap_and_save_directory(path, lean_paths, lean_versions):
     for (root, _, files) in os.walk(path):
         for name in files:
             if name.endswith(".lean"):
                 file_path = os.path.join(root, name)
-                scrap_and_save_file(file_path, lean_paths, lean_version_data, force_reload=False)
+                scrap_and_save_file(file_path, lean_paths, lean_versions, force_reload=False)
 
 if __name__ == "__main__":
     _, path, output_directory = sys.argv
@@ -391,6 +393,6 @@ if __name__ == "__main__":
         scrap_and_save_file(path, lean_paths, lean_versions, force_reload=True)
 
     elif os.path.isdir(path):
-        scrap_and_save_directory(path, lean_paths)
+        scrap_and_save_directory(path, lean_versions, lean_paths)
         
 
