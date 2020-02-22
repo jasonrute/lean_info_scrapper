@@ -7,6 +7,7 @@ import os
 import sys
 import gzip
 from pprint import pprint
+import re
 
 
 class LeanServer:
@@ -63,12 +64,12 @@ class LeanServer:
         if self.log is not None:
             j_ = request1.copy()
             j_['_direction'] = 'sent'
-            j_['_time'] = datetime.now().strftime('%H:%M:%S.%f')
+            j_['_time'] = datetime.now().isoformat()
             self.log.append(j_)
             
         if verbose:
             print()
-            print("=>:", datetime.now().strftime('%H:%M:%S.%f'))
+            print("=>:", datetime.now().isoformat())
             pprint(j)
             print()
             
@@ -84,10 +85,10 @@ class LeanServer:
             if self.log is not None:
                 j_ = output.copy()
                 j_['_direction'] = 'received'
-                j_['_time'] = datetime.now().strftime('%H:%M:%S.%f')
+                j_['_time'] = datetime.now().isoformat()
                 self.log.append(j_)
             if verbose:
-                print("<=:", datetime.now().strftime('%H:%M:%S.%f'))
+                print("<=:", datetime.now().isoformat())
                 pprint(output)
                 print()
             if 'response' in output:
@@ -158,14 +159,16 @@ class LeanInfoScrapper:
         time.sleep(1)
         
         characters = []
+        char_pos = 0  # character pos starting at 1
         for i, l in enumerate(file_contents.split("\n")):
             l = l + '\n'
             for j, c in enumerate(l):
+                char_pos += 1
                 self.lean_server.send_info_request(
                     file_name=file_name, 
                     line=i+1, 
                     column=j)
-                characters.append((i+1, j, c))
+                characters.append((i+1, j, char_pos, c))
 
         return self.lean_server.log, characters
     
@@ -175,10 +178,12 @@ class LeanInfoScrapper:
         
         The result is a list of dictionary items of the form:
           {'file': <path_to_file>, 
-           'line1': <start_line>, # start of message
-           'col1': <start_col>,   #   both line and col are 1-indexed
-           'line1': <start_line>, # position one character after end of message, 
-           'col1': <start_col>,   #   both line and col are 1-indexed
+           'pos1': <start_pos>,   # start of message
+           'line1': <start_line>, #   pos, line, and col are 1-indexed
+           'col1': <start_col>,   #   
+           'pos2': <start_pos>,   # position one character after end of message, 
+           'line2': <start_line>, #   pos, line, and col are 1-indexed
+           'col2': <start_col>,   #   
            'info_type',           # type of message, e.g. 'state', 'full-id', 'type', 'source', 'doc', etc.
            'info_content',        # message content, may be a string, number, or dictionary.
            'string'               # the string spanned by the message
@@ -208,7 +213,7 @@ class LeanInfoScrapper:
         active_messages = {}  # messages which are still active (we haven't reach the end)
         all_messages = []     # the output of this method
         
-        for (line, col, char) in characters:
+        for (line, col, pos, char) in characters:
             # get current messages (if any)
             if (line, col) in info_records:
                 current_message_content = info_records[line, col].copy()
@@ -224,8 +229,9 @@ class LeanInfoScrapper:
                     new_active_messages[k]['string'] += char
                 else:
                     # message ended, add to output
+                    active_messages[k]['pos2'] = pos
                     active_messages[k]['line2'] = line
-                    active_messages[k]['col2'] = col + 1  # add one to make it one =-indexed like line
+                    active_messages[k]['col2'] = col + 1  # add one to make it one-indexed like line
                     all_messages.append(active_messages[k])
 
             # track any new messages
@@ -235,6 +241,7 @@ class LeanInfoScrapper:
                     message = {
                         'file': filename, 
                         'info_type': k, 
+                        'pos1': pos,
                         'line1': line, 
                         'col1': col + 1,  # add one to make it one-indexed like line 
                         'info_content': current_message_content[k], 
@@ -254,7 +261,6 @@ class LeanInfoScrapper:
         log, chars = self.get_message_log_and_characters_from_file(file_name, file_content)
         msgs = self.process_server_log(log, chars, file_name)
         
-        # TODO: I think this will blow up the memory unless I find a way to tell Lean to forget about the file
         return msgs
     
     def process_file_from_path(self, path):
@@ -283,6 +289,25 @@ class LeanInfoScrapper:
         json.dump(msgs, open(file_path,"w"))
 
 
+def lean_version_data():
+    if os.path.isfile('leanpkg.toml'):
+        with open('leanpkg.toml', 'r') as f:
+            lean_version = ""
+            mathlib_rev = ""
+            mathlib_git = ""
+            for line in f:
+                m = re.search(r'lean_version = \"(.*)\"', line)
+                if m:
+                    lean_version = m.group(1)
+
+                m = re.search(r'mathlib = \{git = \"(.*)\", rev = \"(.*)\"\}', line)
+                if m:
+                    mathlib_git, mathlib_rev = m.group(1), m.group(2)
+
+        return lean_version, mathlib_git, mathlib_rev
+    
+    raise Exception('Needs to be run in directory with leanpkg.toml file.')
+
 def lean_paths():
     proc = subprocess.Popen(['lean', '--path'], 
                         universal_newlines=True, 
@@ -307,7 +332,7 @@ def output_file_name(path, lean_paths):
     
     return None
 
-def scrap_and_save_file(file_path, lean_paths, force_reload):
+def scrap_and_save_file(file_path, lean_paths, lean_versions, force_reload):
     file_name_end = output_file_name(file_path, lean_paths)
     if file_name_end is None:
         raise Exception("File " + file_path + " must be an expension of one of these paths:\n", lean_paths)
@@ -320,6 +345,12 @@ def scrap_and_save_file(file_path, lean_paths, force_reload):
     with LeanInfoScrapper({'pp.all':'true'}) as scrapper:
         try:
             msgs = scrapper.process_file_from_path(file_path)
+            
+            # add on version info
+            for m in msgs:
+                m['_lean_version'] = lean_versions[0]
+                m['_mathlib_git'] = lean_versions[1]
+                m['_mathlib_rev'] = lean_versions[2]
 
             print("Saving results to:", output_file)
             json.dump(msgs, gzip.open(output_file, 'wt'))
@@ -330,24 +361,34 @@ def scrap_and_save_file(file_path, lean_paths, force_reload):
             print(err)
             print()
 
-def scrap_and_save_directory(path, lean_paths):
+def scrap_and_save_directory(path, lean_paths, lean_versions):
     for (root, _, files) in os.walk(path):
         for name in files:
             if name.endswith(".lean"):
                 file_path = os.path.join(root, name)
-                scrap_and_save_file(file_path, lean_paths, force_reload=False)
+                scrap_and_save_file(file_path, lean_paths, lean_version_data, force_reload=False)
 
 if __name__ == "__main__":
     _, path, output_directory = sys.argv
 
+    lean_versions = lean_version_data()
     lean_paths = lean_paths()
+
+    print("lean_version:", lean_versions[0])
+    print("mathlib_git:", lean_versions[1])
+    print("mathlib_rev:", lean_versions[2])
+    print()
+
+    print("Lean paths:")
+    print("\n".join(lean_paths))
+    print()
 
     if path == 'ALL':
         for lean_path in lean_paths:
-            scrap_and_save_directory(lean_path, lean_paths)
+            scrap_and_save_directory(lean_path, lean_paths, lean_versions)
 
     elif path.endswith('.lean'):
-        scrap_and_save_file(path, lean_paths, force_reload=True)
+        scrap_and_save_file(path, lean_paths, lean_versions, force_reload=True)
 
     elif os.path.isdir(path):
         scrap_and_save_directory(path, lean_paths)
