@@ -63,7 +63,7 @@ Here is a description of the various fields:
 * '_timestamp' (string): The datetime that this information was accessed from the Lean server.  (More useful for debugging this script than anything else.)
 * '_lean_version' (string): The version of Lean being used.  Useful for reproducibility.  Taken from `leanpkg.toml`.  (The Lean version will determine the files in the core library and also the behavior of the Lean server.)
 * '_mathlib_git', '_mathlib_rev' (string): The git version of mathlib.  Useful for reproducibility.  Taken from `leanpkg.toml`.  (Note, [https://github.com/leanprover/mathlib](https://github.com/leanprover/mathlib) redirects to [https://github.com/leanprover-community/mathlib](https://github.com/leanprover/mathlib) and that [dd8da5165bd00b07408dbb87173e96908c6926a4](https://github.com/leanprover-community/mathlib/tree/dd8da51
-) is a fairly recent comment of the new Lean community mathlib.
+) is a fairly recent commit of the new Lean community mathlib.
 
 ## TODO: Extract useful information from this data
 This data is very raw.  The next step is to parse it into a more useful form, including the following tasks:
